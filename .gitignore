@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+
+# ROS2 / colcon artifacts
+build/
+install/
+log/
+runs/
+test_runs/
+toolpath_bag/
+*.mcap
+*.db3
+*.bag
+*.bag.active
+
+# Runtime logs
+/tmp/
+*.log
+
+# Model weights and large binaries
+weights/
+*.pt
+*.onnx
+*.engine
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
