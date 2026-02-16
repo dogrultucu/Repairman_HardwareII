@@ -52,6 +52,9 @@ class StateManager(Node):
         self.declare_parameter("cycle_period_sec", 30.0)  # Auto-trigger new cycle every N seconds
         self.declare_parameter("quality_threshold", 0.5)  # If quality < this, request second pass
         self.declare_parameter("rescan_delay_sec", 2.0)  # Wait after repair before re-scanning
+        self.declare_parameter("scan_min_duration_sec", 1.5)  # Minimum time to stay in SCAN
+        self.declare_parameter("detect_min_duration_sec", 0.8)  # Minimum time to stay in DETECT
+        self.declare_parameter("plan_min_duration_sec", 0.8)  # Minimum time to stay in PLAN
         self.declare_parameter("max_repair_passes", 2)  # Max number of consecutive repair attempts
         self.declare_parameter("auto_start", True)  # If True, automatically start cycles
         self.declare_parameter("verbose", True)
@@ -59,6 +62,9 @@ class StateManager(Node):
         self.cycle_period = float(self.get_parameter("cycle_period_sec").value)
         self.quality_threshold = float(self.get_parameter("quality_threshold").value)
         self.rescan_delay = float(self.get_parameter("rescan_delay_sec").value)
+        self.scan_min_duration = float(self.get_parameter("scan_min_duration_sec").value)
+        self.detect_min_duration = float(self.get_parameter("detect_min_duration_sec").value)
+        self.plan_min_duration = float(self.get_parameter("plan_min_duration_sec").value)
         self.max_repair_passes = int(self.get_parameter("max_repair_passes").value)
         self.auto_start = bool(self.get_parameter("auto_start").value)
         self.verbose = bool(self.get_parameter("verbose").value)
@@ -116,22 +122,30 @@ class StateManager(Node):
         """Handle incoming image messages."""
         self.last_image_time = time.time()
         if self.state == State.SCAN:
-            self.transition_to(State.DETECT)
+            elapsed = time.time() - self.state_entry_time
+            if elapsed >= self.scan_min_duration:
+                self.transition_to(State.DETECT)
 
     def on_mask(self, msg: Image):
         """Handle incoming mask messages."""
         self.last_mask_time = time.time()
         if self.state == State.DETECT:
-            self.transition_to(State.PLAN)
+            elapsed = time.time() - self.state_entry_time
+            if elapsed >= self.detect_min_duration:
+                self.transition_to(State.PLAN)
         elif self.state == State.RESCAN:
-            # Re-scan mask acquired, move to evaluation
-            self.transition_to(State.EVALUATE)
+            elapsed = time.time() - self.state_entry_time
+            if elapsed >= self.rescan_delay:
+                # Re-scan mask acquired after delay, move to evaluation
+                self.transition_to(State.EVALUATE)
 
     def on_toolpath(self, msg: Polygon):
         """Handle incoming toolpath messages."""
         self.last_toolpath_time = time.time()
         if self.state == State.PLAN:
-            self.transition_to(State.REPAIR)
+            elapsed = time.time() - self.state_entry_time
+            if elapsed >= self.plan_min_duration:
+                self.transition_to(State.REPAIR)
 
     def on_executed(self, msg: Bool):
         """Handle execution completion messages."""

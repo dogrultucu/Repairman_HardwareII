@@ -12,6 +12,15 @@ setup(
         ('share/' + package_name + '/launch', ['launch/launch.py']),
         ('share/' + package_name + '/rviz', ['rviz/repairman_pipeline.rviz']),
         ('share/' + package_name + '/urdf', ['urdf/repairman_demo.urdf']),
+        (
+            'share/' + package_name + '/moveit',
+            [
+                'moveit/repairman_demo.srdf',
+                'moveit/kinematics.yaml',
+                'moveit/joint_limits.yaml',
+                'moveit/ompl_planning.yaml',
+            ],
+        ),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -29,6 +38,10 @@ setup(
             'verify_node = repairman_vision.verify_node:main',
             'state_manager = repairman_vision.state_manager:main',
             'robot_description_pub = repairman_vision.robot_description_pub:main',
+            'arm_sim_node = repairman_vision.arm_sim_node:main',
+            'planning_scene_node = repairman_vision.planning_scene_node:main',
+            'collision_check_node = repairman_vision.collision_check_node:main',
+            'pipeline_visualizer_node = repairman_vision.pipeline_visualizer_node:main',
         ],
     },
 )

@@ -139,6 +139,7 @@ class VerifyNode(Node):
         smoothed_quality = np.mean(list(self.quality_score_cache))
         score_msg = Float32(data=float(smoothed_quality))
         self.pub_quality.publish(score_msg)
+        self.get_logger().info(f"Published quality score: {smoothed_quality:.3f}")
 
         self.get_logger().debug(
             f"Quality: before_area={before_area}, after_area={after_area}, score={smoothed_quality:.3f}"

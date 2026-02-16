@@ -138,6 +138,127 @@ Expected topics:
 - `/repair/executed`
 - `/repair/quality_score`
 
+#### 5.3 Quality Score Graph (Visual)
+
+The launch file now starts a quality graph window by default (`rqt_plot`).
+
+```bash
+ros2 launch repairman_vision launch.py use_quality_plot:=true
+```
+
+You can also run plot-only manually:
+
+```bash
+ros2 run rqt_plot rqt_plot /repair/quality_score/data
+```
+
+#### 5.4 Mask and Toolpath Visualization (Visual)
+
+The launch file now also publishes RViz-friendly toolpath preview topics:
+
+- `/repair/toolpath_path` (`nav_msgs/Path`) for centerline/path preview
+- `/repair/toolpath_overlay` (`sensor_msgs/Image`) for mask + toolpath overlay
+
+Open RViz with the project config:
+
+```bash
+rviz2 -d ~/repairman_ws/src/repairman_vision/rviz/repairman_pipeline.rviz
+```
+
+You should see these real-time panels/displays:
+
+- `DamageMask` -> `/damage/mask`
+- `ToolpathOverlay` -> `/repair/toolpath_overlay`
+- `ToolpathPreview` -> `/repair/toolpath_path`
+- `ExecutedPath` -> `/repair/executed_path`
+
+#### 5.5 Extrusion Simulation in RViz
+
+Execution now includes a visual extrusion simulation:
+
+- `/repair/extrusion_markers` (`visualization_msgs/MarkerArray`)
+  - deposited material trace (`LINE_STRIP`)
+  - live toolhead/nozzle marker (`SPHERE`)
+
+Run with extrusion enabled (default: true):
+
+```bash
+ros2 launch repairman_vision launch.py simulate_extrusion:=true
+```
+
+In RViz, verify display:
+
+- `ExtrusionMarkers` -> `/repair/extrusion_markers`
+
+#### 5.6 6-Axis Robot Motion in RViz
+
+The demo now includes a 6-axis articulated robot model driven by an IK
+tracking node (`arm_sim_node`) from `/repair/executed_path`.
+
+```bash
+ros2 launch repairman_vision launch.py use_arm_sim:=true
+```
+
+In RViz, keep `RobotModel` enabled and verify:
+
+- `/joint_states` is being published
+- the 6-axis arm follows the executed centerline path
+
+Safety tuning examples (singularity/jerk mitigation):
+
+```bash
+ros2 launch repairman_vision launch.py use_arm_sim:=true \
+  max_joint_speed_rad_s:=0.7 singularity_margin:=0.12 safe_min_radius:=0.18
+```
+
+#### 5.7 MoveIt Planning Scene + Collision Checking
+
+MoveIt integration is optional and disabled by default.
+
+Install (inside Docker/container):
+
+```bash
+apt update
+apt install -y ros-jazzy-moveit ros-jazzy-moveit-msgs ros-jazzy-moveit-ros-move-group
+```
+
+Run with MoveIt stack + planning scene + collision check:
+
+```bash
+ros2 launch repairman_vision launch.py \
+  use_moveit:=true \
+  use_moveit_scene:=true \
+  use_moveit_collision_check:=true \
+  use_arm_sim:=true
+```
+
+Collision status topics:
+
+- `/repair/in_collision` (`std_msgs/Bool`)
+- `/repair/collision_status` (`std_msgs/String`)
+- `/repair/collision_marker` (`visualization_msgs/Marker`)
+
+#### 5.8 Realtime Phase + Percentage Visualizer
+
+The pipeline now includes a realtime progress visualizer for:
+
+- current phase (`SCAN/DETECT/PLAN/REPAIR/RESCAN/EVALUATE/PASS/RETRY`)
+- phase completion percentage
+- overall cycle completion percentage
+
+It is enabled by default in launch:
+
+```bash
+ros2 launch repairman_vision launch.py use_pipeline_visualizer:=true
+```
+
+Topics:
+
+- `/repair/pipeline_markers` (`visualization_msgs/MarkerArray`)
+- `/repair/pipeline_status` (`std_msgs/String`)
+- `/repair/stage_progress` (`std_msgs/Float32`)
+- `/repair/cycle_progress` (`std_msgs/Float32`)
+
 ### 6. Recommended Team Usage
 
 - For technical depth: `README_REPAIRMAN.md`
@@ -339,6 +460,128 @@ Beklenen topic'ler:
 - `/repair/toolpath`
 - `/repair/executed`
 - `/repair/quality_score`
+
+#### 5.3 Quality Score Grafigi (Gorsel)
+
+Launch dosyasi artik varsayilan olarak kalite grafigi penceresini (`rqt_plot`)
+aciyor.
+
+```bash
+ros2 launch repairman_vision launch.py use_quality_plot:=true
+```
+
+Istersen sadece grafik icin manuel de acabilirsin:
+
+```bash
+ros2 run rqt_plot rqt_plot /repair/quality_score/data
+```
+
+#### 5.4 Mask ve Toolpath Gorsellestirme
+
+Launch artik RViz icin ek toolpath gorsel topicleri de yayinliyor:
+
+- `/repair/toolpath_path` (`nav_msgs/Path`) -> centerline/path onizlemesi
+- `/repair/toolpath_overlay` (`sensor_msgs/Image`) -> mask + toolpath overlay
+
+Proje RViz config'i ile ac:
+
+```bash
+rviz2 -d ~/repairman_ws/src/repairman_vision/rviz/repairman_pipeline.rviz
+```
+
+Gercek zamanli olarak sunlari gormelisin:
+
+- `DamageMask` -> `/damage/mask`
+- `ToolpathOverlay` -> `/repair/toolpath_overlay`
+- `ToolpathPreview` -> `/repair/toolpath_path`
+- `ExecutedPath` -> `/repair/executed_path`
+
+#### 5.5 RViz'de Extrusion Simulasyonu
+
+Yurutme adimi artik gorsel bir extrusion simulasyonu da uretiyor:
+
+- `/repair/extrusion_markers` (`visualization_msgs/MarkerArray`)
+  - biriken malzeme izi (`LINE_STRIP`)
+  - canli toolhead/nozzle imleci (`SPHERE`)
+
+Extrusion acik sekilde calistir (varsayilan: true):
+
+```bash
+ros2 launch repairman_vision launch.py simulate_extrusion:=true
+```
+
+RViz'de su display'i kontrol et:
+
+- `ExtrusionMarkers` -> `/repair/extrusion_markers`
+
+#### 5.6 RViz'de 6-Eksen Robot Hareketi
+
+Demo artik `/repair/executed_path` bilgisini takip eden IK tabanli bir
+`arm_sim_node` ile 6-eksen eklemli robotu hareket ettiriyor.
+
+```bash
+ros2 launch repairman_vision launch.py use_arm_sim:=true
+```
+
+RViz'de `RobotModel` acik olmali. Asagilari dogrula:
+
+- `/joint_states` yayini geliyor
+- 6-eksen kol centerline toolpath'i takip ederek hareket ediyor
+
+Singularity/sarsinti azaltma icin ayar ornegi:
+
+```bash
+ros2 launch repairman_vision launch.py use_arm_sim:=true \
+  max_joint_speed_rad_s:=0.7 singularity_margin:=0.12 safe_min_radius:=0.18
+```
+
+#### 5.7 MoveIt Planning Scene + Collision Checking
+
+MoveIt entegrasyonu opsiyoneldir ve varsayilan olarak kapali gelir.
+
+Kurulum (Docker/container icinde):
+
+```bash
+apt update
+apt install -y ros-jazzy-moveit ros-jazzy-moveit-msgs ros-jazzy-moveit-ros-move-group
+```
+
+MoveIt stack + planning scene + collision check ile calistirma:
+
+```bash
+ros2 launch repairman_vision launch.py \
+  use_moveit:=true \
+  use_moveit_scene:=true \
+  use_moveit_collision_check:=true \
+  use_arm_sim:=true
+```
+
+Collision durum topic'leri:
+
+- `/repair/in_collision` (`std_msgs/Bool`)
+- `/repair/collision_status` (`std_msgs/String`)
+- `/repair/collision_marker` (`visualization_msgs/Marker`)
+
+#### 5.8 Gercek Zamanli Asama + Yuzde Gorsellestirici
+
+Pipeline artik su bilgileri gercek zamanli gosteriyor:
+
+- aktif asama (`SCAN/DETECT/PLAN/REPAIR/RESCAN/EVALUATE/PASS/RETRY`)
+- asama tamamlama yuzdesi
+- genel dongu tamamlama yuzdesi
+
+Launch icinde varsayilan olarak acik:
+
+```bash
+ros2 launch repairman_vision launch.py use_pipeline_visualizer:=true
+```
+
+Topic'ler:
+
+- `/repair/pipeline_markers` (`visualization_msgs/MarkerArray`)
+- `/repair/pipeline_status` (`std_msgs/String`)
+- `/repair/stage_progress` (`std_msgs/Float32`)
+- `/repair/cycle_progress` (`std_msgs/Float32`)
 
 ### 6. Takim Paylasimi Icin Onerilen Kullanim
 
