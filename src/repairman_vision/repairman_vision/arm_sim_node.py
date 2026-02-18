@@ -38,6 +38,13 @@ class ArmSimNode(Node):
         self.declare_parameter("yaw_smoothing_alpha", 0.15)
         self.declare_parameter("max_joint_speed_rad_s", 1.0)
         self.declare_parameter("singularity_margin", 0.08)
+        self.declare_parameter("toolpath_yaw_offset_deg", 0.0)
+        self.declare_parameter("perpendicular_to_toolpath", False)
+        self.declare_parameter("use_ur_wrist_shaping", False)
+        self.declare_parameter("wrist5_target_rad", -1.35)
+        self.declare_parameter("wrist5_compensation_gain", 0.7)
+        self.declare_parameter("wrist5_min_abs_rad", 0.35)
+        self.declare_parameter("wrist_yaw_split_to_joint4", 0.65)
         self.declare_parameter("safe_min_radius", 0.26)
         self.declare_parameter("safe_max_radius", 0.44)
         self.declare_parameter("safe_work_z", 0.11)
@@ -51,6 +58,9 @@ class ArmSimNode(Node):
         self.declare_parameter("base_y", 0.5)
         self.declare_parameter("shoulder_z", 0.17)
         self.declare_parameter("work_z", 0.01)
+        self.declare_parameter(
+            "joint_names", [f"joint_{i}" for i in range(1, 7)]
+        )
 
         # Match URDF arm geometry.
         self.declare_parameter("link_2", 0.28)  # shoulder -> elbow
@@ -75,6 +85,21 @@ class ArmSimNode(Node):
         self.alpha = float(self.get_parameter("tracking_alpha").value)
         self.target_alpha = float(self.get_parameter("target_smoothing_alpha").value)
         self.yaw_alpha = float(self.get_parameter("yaw_smoothing_alpha").value)
+        self.toolpath_yaw_offset_rad = math.radians(
+            float(self.get_parameter("toolpath_yaw_offset_deg").value)
+        )
+        self.perpendicular_to_toolpath = bool(self.get_parameter("perpendicular_to_toolpath").value)
+        if self.perpendicular_to_toolpath:
+            self.toolpath_yaw_offset_rad += math.pi / 2.0
+        self.use_ur_wrist_shaping = bool(self.get_parameter("use_ur_wrist_shaping").value)
+        self.wrist5_target_rad = float(self.get_parameter("wrist5_target_rad").value)
+        self.wrist5_compensation_gain = float(
+            self.get_parameter("wrist5_compensation_gain").value
+        )
+        self.wrist5_min_abs_rad = float(self.get_parameter("wrist5_min_abs_rad").value)
+        self.wrist_yaw_split_to_joint4 = float(
+            self.get_parameter("wrist_yaw_split_to_joint4").value
+        )
         self.max_joint_speed = float(self.get_parameter("max_joint_speed_rad_s").value)
         self.singularity_margin = float(self.get_parameter("singularity_margin").value)
         self.safe_min_radius = float(self.get_parameter("safe_min_radius").value)
@@ -103,7 +128,9 @@ class ArmSimNode(Node):
         self.home_mode = True
         self.in_collision = False
 
-        self.joint_names = [f"joint_{i}" for i in range(1, 7)]
+        self.joint_names = self.read_joint_names_param(
+            "joint_names", [f"joint_{i}" for i in range(1, 7)]
+        )
         self.current = self.wait_pose.copy()
         self.home = self.wait_pose.copy()
         self.last_singularity_scale = 1.0
@@ -154,7 +181,8 @@ class ArmSimNode(Node):
             p0 = msg.poses[-2].pose.position
             p1 = msg.poses[-1].pose.position
             measured_yaw = math.atan2(p1.y - p0.y, p1.x - p0.x)
-            yaw_delta = self.wrap_pi(measured_yaw - self.target_yaw)
+            desired_yaw = self.wrap_pi(measured_yaw + self.toolpath_yaw_offset_rad)
+            yaw_delta = self.wrap_pi(desired_yaw - self.target_yaw)
             yaw_alpha = self.clamp(self.yaw_alpha, 0.01, 1.0)
             self.target_yaw = self.wrap_pi(self.target_yaw + yaw_alpha * yaw_delta)
 
@@ -285,10 +313,28 @@ class ArmSimNode(Node):
         _, q2, q3, chosen_branch_sign = min(branch_candidates, key=lambda x: x[0])
         self.last_elbow_sign = chosen_branch_sign
 
-        # Wrist shaping to keep tool roughly downward and aligned with path heading.
-        q4 = self.current[3] + self.wrap_pi((self.target_yaw - q1) - self.current[3])
-        q5 = self.clamp(-(q2 + q3), -2.2, 2.2)
-        q6 = self.current[5] + self.wrap_pi((-0.5 * q4) - self.current[5])
+        # Wrist shaping for path alignment and singularity robustness.
+        yaw_error = self.wrap_pi(self.target_yaw - q1)
+        if self.use_ur_wrist_shaping:
+            q4_target = self.clamp(self.wrist_yaw_split_to_joint4 * yaw_error, -math.pi, math.pi)
+            q4 = self.current[3] + self.wrap_pi(q4_target - self.current[3])
+
+            q5_target = self.wrist5_target_rad - self.wrist5_compensation_gain * (q2 + q3)
+            q5_target = self.clamp(q5_target, -2.2, 2.2)
+            min_abs_q5 = self.clamp(abs(self.wrist5_min_abs_rad), 0.0, 2.0)
+            if abs(q5_target) < min_abs_q5:
+                sign = 1.0 if q5_target >= 0.0 else -1.0
+                if abs(q5_target) < 1e-6:
+                    sign = 1.0 if self.current[4] >= 0.0 else -1.0
+                q5_target = sign * min_abs_q5
+            q5 = q5_target
+
+            q6_target = self.wrap_pi(yaw_error - q4)
+            q6 = self.current[5] + self.wrap_pi(q6_target - self.current[5])
+        else:
+            q4 = self.current[3] + self.wrap_pi(yaw_error - self.current[3])
+            q5 = self.clamp(-(q2 + q3), -2.2, 2.2)
+            q6 = self.current[5] + self.wrap_pi((-0.5 * q4) - self.current[5])
 
         # Slow down when near singularity.
         self.last_singularity_scale = self.clamp(s3_mag / max(self.singularity_margin, 1e-3), 0.2, 1.0)
@@ -325,6 +371,20 @@ class ArmSimNode(Node):
             self.get_logger().warn(f"{name} must contain 6 values, using fallback.")
             vals = list(fallback)
         return np.array(vals, dtype=float)
+
+    def read_joint_names_param(self, name, fallback):
+        raw = self.get_parameter(name).value
+        if isinstance(raw, str):
+            vals = [part.strip() for part in raw.split(",") if part.strip()]
+        else:
+            try:
+                vals = [str(v).strip() for v in raw if str(v).strip()]
+            except Exception:
+                vals = list(fallback)
+        if len(vals) != 6:
+            self.get_logger().warn(f"{name} must contain 6 joint names, using fallback.")
+            vals = list(fallback)
+        return vals
 
     def clamp_joint_array(self, q: np.ndarray) -> np.ndarray:
         return np.minimum(np.maximum(q, self.joint_lower), self.joint_upper)

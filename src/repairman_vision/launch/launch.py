@@ -13,8 +13,16 @@ Nodes launched:
 from launch import LaunchDescription
 from launch_ros.actions import Node
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import (
+    Command,
+    FindExecutable,
+    LaunchConfiguration,
+    PathJoinSubstitution,
+    PythonExpression,
+)
 from launch.conditions import IfCondition
+from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
 import os
 import yaml
 from ament_index_python.packages import get_package_share_directory
@@ -355,7 +363,19 @@ def generate_launch_description():
     publish_demo_robot_arg = DeclareLaunchArgument(
         "publish_demo_robot",
         default_value="true",
-        description="Publish a built-in demo URDF so RViz RobotModel is always visible",
+        description="Publish a built-in robot description so RViz RobotModel is visible",
+    )
+
+    use_ur10_model_arg = DeclareLaunchArgument(
+        "use_ur10_model",
+        default_value="false",
+        description="Use UR10 description (ur_description) instead of built-in demo model",
+    )
+
+    ur_type_arg = DeclareLaunchArgument(
+        "ur_type",
+        default_value="ur10",
+        description="UR robot family used when use_ur10_model=true (e.g. ur10, ur10e, ur20)",
     )
 
     use_moveit_arg = DeclareLaunchArgument(
@@ -566,6 +586,28 @@ def generate_launch_description():
     with open(demo_urdf_path, "r", encoding="utf-8") as urdf_file:
         demo_robot_description = urdf_file.read()
 
+    ur_robot_description = ParameterValue(
+        Command(
+            [
+                PathJoinSubstitution([FindExecutable(name="xacro")]),
+                " ",
+                PathJoinSubstitution(
+                    [FindPackageShare("ur_description"), "urdf", "ur.urdf.xacro"]
+                ),
+                " ",
+                "safety_limits:=true ",
+                "safety_pos_margin:=0.15 ",
+                "safety_k_position:=20 ",
+                "name:=ur ",
+                "ur_type:=",
+                LaunchConfiguration("ur_type"),
+                " ",
+                'tf_prefix:=""',
+            ]
+        ),
+        value_type=str,
+    )
+
     demo_srdf_path = os.path.join(pkg_dir, "moveit", "repairman_demo.srdf")
     try:
         with open(demo_srdf_path, "r", encoding="utf-8") as srdf_file:
@@ -604,12 +646,103 @@ def generate_launch_description():
         "publish_transforms_updates": True,
     }
 
+    use_demo_robot_condition = IfCondition(
+        PythonExpression(
+            [
+                '"',
+                LaunchConfiguration("publish_demo_robot"),
+                '" == "true" and "',
+                LaunchConfiguration("use_ur10_model"),
+                '" != "true"',
+            ]
+        )
+    )
+    use_ur10_robot_condition = IfCondition(
+        PythonExpression(
+            [
+                '"',
+                LaunchConfiguration("publish_demo_robot"),
+                '" == "true" and "',
+                LaunchConfiguration("use_ur10_model"),
+                '" == "true"',
+            ]
+        )
+    )
+    use_demo_arm_sim_condition = IfCondition(
+        PythonExpression(
+            [
+                '"',
+                LaunchConfiguration("use_arm_sim"),
+                '" == "true" and "',
+                LaunchConfiguration("use_ur10_model"),
+                '" != "true"',
+            ]
+        )
+    )
+    use_ur10_arm_sim_condition = IfCondition(
+        PythonExpression(
+            [
+                '"',
+                LaunchConfiguration("use_arm_sim"),
+                '" == "true" and "',
+                LaunchConfiguration("use_ur10_model"),
+                '" == "true"',
+            ]
+        )
+    )
+    use_demo_moveit_condition = IfCondition(
+        PythonExpression(
+            [
+                '"',
+                LaunchConfiguration("use_moveit"),
+                '" == "true" and "',
+                LaunchConfiguration("use_ur10_model"),
+                '" != "true"',
+            ]
+        )
+    )
+
+    ur10_base_tf_node = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="repairman_ur10_base_tf",
+        arguments=[
+            "--x",
+            "0.5",
+            "--y",
+            "0.5",
+            "--z",
+            "0.0",
+            "--roll",
+            "0.0",
+            "--pitch",
+            "0.0",
+            "--yaw",
+            "0.0",
+            "--frame-id",
+            "repairman_map",
+            "--child-frame-id",
+            "base_link",
+        ],
+        condition=use_ur10_robot_condition,
+        output="screen",
+    )
+
     demo_robot_state_publisher_node = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
         name="repairman_demo_state_publisher",
         parameters=[{"robot_description": demo_robot_description}],
-        condition=IfCondition(LaunchConfiguration("publish_demo_robot")),
+        condition=use_demo_robot_condition,
+        output="screen",
+    )
+
+    ur10_robot_state_publisher_node = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        name="repairman_ur10_state_publisher",
+        parameters=[{"robot_description": ur_robot_description}],
+        condition=use_ur10_robot_condition,
         output="screen",
     )
 
@@ -622,48 +755,97 @@ def generate_launch_description():
             {"robot_description": demo_robot_description},
             {"publish_rate_hz": 0.5},
         ],
-        condition=IfCondition(LaunchConfiguration("publish_demo_robot")),
+        condition=use_demo_robot_condition,
         output="screen",
     )
 
-    arm_sim_node = Node(
+    ur10_robot_description_topic_node = Node(
+        package="repairman_vision",
+        executable="robot_description_pub",
+        name="repairman_ur10_description_pub",
+        parameters=[
+            {"topic": "/robot_description"},
+            {"robot_description": ur_robot_description},
+            {"publish_rate_hz": 0.5},
+        ],
+        condition=use_ur10_robot_condition,
+        output="screen",
+    )
+
+    arm_sim_common_parameters = [
+        {"path_topic": "/repair/executed_path"},
+        {"executed_topic": "/repair/executed"},
+        {"state_topic": "/repair/state"},
+        {"joint_state_topic": "/joint_states"},
+        {"publish_rate_hz": 30.0},
+        {"use_state_driven_motion": LaunchConfiguration("arm_state_driven_motion")},
+        {"path_stale_timeout_sec": 1.0},
+        {"scan_cycle_sec": 4.0},
+        {"scan_sweep_joint1_deg": 22.0},
+        {"scan_sweep_joint4_deg": 16.0},
+        {"wait_pose": [0.35, -1.20, 1.85, 0.0, -0.65, 0.0]},
+        {"scan_pose": [0.20, -1.05, 1.70, 0.0, -0.80, 0.0]},
+        {"tracking_alpha": LaunchConfiguration("arm_tracking_alpha")},
+        {"target_smoothing_alpha": LaunchConfiguration("arm_target_smoothing_alpha")},
+        {"yaw_smoothing_alpha": LaunchConfiguration("arm_yaw_smoothing_alpha")},
+        {"toolpath_yaw_offset_deg": 0.0},
+        {"perpendicular_to_toolpath": False},
+        {"use_ur_wrist_shaping": False},
+        {"wrist5_target_rad": -1.35},
+        {"wrist5_compensation_gain": 0.7},
+        {"wrist5_min_abs_rad": 0.35},
+        {"wrist_yaw_split_to_joint4": 0.65},
+        {"max_joint_speed_rad_s": LaunchConfiguration("max_joint_speed_rad_s")},
+        {"singularity_margin": LaunchConfiguration("singularity_margin")},
+        {"safe_min_radius": LaunchConfiguration("safe_min_radius")},
+        {"safe_max_radius": LaunchConfiguration("safe_max_radius")},
+        {"safe_work_z": LaunchConfiguration("safe_work_z")},
+        {"tool_tcp_offset": LaunchConfiguration("arm_tool_tcp_offset")},
+        {"collision_topic": "/repair/in_collision"},
+        {"use_collision_guard": LaunchConfiguration("arm_use_collision_guard")},
+        {"retreat_on_collision": LaunchConfiguration("arm_retreat_on_collision")},
+        {"elbow_branch_switch_penalty": LaunchConfiguration("arm_elbow_switch_penalty")},
+        {"base_x": 0.5},
+        {"base_y": 0.5},
+        {"shoulder_z": 0.17},
+        {"work_z": 0.01},
+        {"link_2": 0.28},
+        {"link_3": 0.24},
+    ]
+
+    arm_sim_demo_node = Node(
         package="repairman_vision",
         executable="arm_sim_node",
         name="arm_sim_node",
-        parameters=[
-            {"path_topic": "/repair/executed_path"},
-            {"executed_topic": "/repair/executed"},
-            {"state_topic": "/repair/state"},
-            {"joint_state_topic": "/joint_states"},
-            {"publish_rate_hz": 30.0},
-            {"use_state_driven_motion": LaunchConfiguration("arm_state_driven_motion")},
-            {"path_stale_timeout_sec": 1.0},
-            {"scan_cycle_sec": 4.0},
-            {"scan_sweep_joint1_deg": 22.0},
-            {"scan_sweep_joint4_deg": 16.0},
-            {"wait_pose": [0.35, -1.20, 1.85, 0.0, -0.65, 0.0]},
-            {"scan_pose": [0.20, -1.05, 1.70, 0.0, -0.80, 0.0]},
-            {"tracking_alpha": LaunchConfiguration("arm_tracking_alpha")},
-            {"target_smoothing_alpha": LaunchConfiguration("arm_target_smoothing_alpha")},
-            {"yaw_smoothing_alpha": LaunchConfiguration("arm_yaw_smoothing_alpha")},
-            {"max_joint_speed_rad_s": LaunchConfiguration("max_joint_speed_rad_s")},
-            {"singularity_margin": LaunchConfiguration("singularity_margin")},
-            {"safe_min_radius": LaunchConfiguration("safe_min_radius")},
-            {"safe_max_radius": LaunchConfiguration("safe_max_radius")},
-            {"safe_work_z": LaunchConfiguration("safe_work_z")},
-            {"tool_tcp_offset": LaunchConfiguration("arm_tool_tcp_offset")},
-            {"collision_topic": "/repair/in_collision"},
-            {"use_collision_guard": LaunchConfiguration("arm_use_collision_guard")},
-            {"retreat_on_collision": LaunchConfiguration("arm_retreat_on_collision")},
-            {"elbow_branch_switch_penalty": LaunchConfiguration("arm_elbow_switch_penalty")},
-            {"base_x": 0.5},
-            {"base_y": 0.5},
-            {"shoulder_z": 0.17},
-            {"work_z": 0.01},
-            {"link_2": 0.28},
-            {"link_3": 0.24},
+        parameters=arm_sim_common_parameters + [{"joint_names": [f"joint_{i}" for i in range(1, 7)]}],
+        condition=use_demo_arm_sim_condition,
+        output="screen",
+    )
+
+    arm_sim_ur10_node = Node(
+        package="repairman_vision",
+        executable="arm_sim_node",
+        name="arm_sim_node",
+        parameters=arm_sim_common_parameters
+        + [
+            {
+                "joint_names": [
+                    "shoulder_pan_joint",
+                    "shoulder_lift_joint",
+                    "elbow_joint",
+                    "wrist_1_joint",
+                    "wrist_2_joint",
+                    "wrist_3_joint",
+                ]
+            },
+            {"perpendicular_to_toolpath": True},
+            {"use_ur_wrist_shaping": True},
+            {"wrist5_target_rad": -1.40},
+            {"wrist5_compensation_gain": 0.75},
+            {"wrist5_min_abs_rad": 0.40},
+            {"wrist_yaw_split_to_joint4": 0.70},
         ],
-        condition=IfCondition(LaunchConfiguration("use_arm_sim")),
+        condition=use_ur10_arm_sim_condition,
         output="screen",
     )
 
@@ -683,7 +865,7 @@ def generate_launch_description():
             {"capabilities": ""},
             {"disable_capabilities": "move_group/ExecuteTrajectoryAction"},
         ],
-        condition=IfCondition(LaunchConfiguration("use_moveit")),
+        condition=use_demo_moveit_condition,
         output="screen",
     )
 
@@ -844,6 +1026,8 @@ def generate_launch_description():
             connect_world_to_repairman_arg,
             robot_world_frame_arg,
             publish_demo_robot_arg,
+            use_ur10_model_arg,
+            ur_type_arg,
             use_moveit_arg,
             use_moveit_scene_arg,
             use_moveit_collision_check_arg,
@@ -857,9 +1041,13 @@ def generate_launch_description():
             state_manager_node,
             static_tf_node,
             world_to_repairman_tf_node,
+            ur10_base_tf_node,
             demo_robot_state_publisher_node,
+            ur10_robot_state_publisher_node,
             demo_robot_description_topic_node,
-            arm_sim_node,
+            ur10_robot_description_topic_node,
+            arm_sim_demo_node,
+            arm_sim_ur10_node,
             move_group_node,
             planning_scene_node,
             collision_check_node,
