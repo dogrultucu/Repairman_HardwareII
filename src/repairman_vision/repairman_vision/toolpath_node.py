@@ -32,12 +32,23 @@ class ToolpathNode(Node):
         self.declare_parameter("workpiece_origin_y", 0.25)
         self.declare_parameter("workpiece_width", 0.32)
         self.declare_parameter("workpiece_height", 0.50)
+        self.declare_parameter("use_corner_calibration", False)
+        self.declare_parameter("corner_a_x", 0.62)
+        self.declare_parameter("corner_a_y", 0.25)
+        self.declare_parameter("corner_a_z", 0.0)
+        self.declare_parameter("corner_b_x", 0.94)
+        self.declare_parameter("corner_b_y", 0.25)
+        self.declare_parameter("corner_b_z", 0.0)
+        self.declare_parameter("corner_c_x", 0.62)
+        self.declare_parameter("corner_c_y", 0.75)
+        self.declare_parameter("corner_c_z", 0.0)
         self.declare_parameter("path_smooth_window", 9)
         self.declare_parameter("project_to_safe_annulus", True)
         self.declare_parameter("safe_base_x", 0.5)
         self.declare_parameter("safe_base_y", 0.5)
         self.declare_parameter("safe_min_radius", 0.26)
         self.declare_parameter("safe_max_radius", 0.44)
+        self.declare_parameter("distance_scale_from_base", 1.0)
         self.declare_parameter("reverse_for_easy_start", True)
         self.declare_parameter("preferred_start_x", 0.75)
         self.declare_parameter("preferred_start_y", 0.50)
@@ -62,6 +73,40 @@ class ToolpathNode(Node):
         self.workpiece_origin_y = float(self.get_parameter("workpiece_origin_y").value)
         self.workpiece_width = float(self.get_parameter("workpiece_width").value)
         self.workpiece_height = float(self.get_parameter("workpiece_height").value)
+        self.use_corner_calibration = bool(self.get_parameter("use_corner_calibration").value)
+        self.corner_a = (
+            float(self.get_parameter("corner_a_x").value),
+            float(self.get_parameter("corner_a_y").value),
+            float(self.get_parameter("corner_a_z").value),
+        )
+        self.corner_b = (
+            float(self.get_parameter("corner_b_x").value),
+            float(self.get_parameter("corner_b_y").value),
+            float(self.get_parameter("corner_b_z").value),
+        )
+        self.corner_c = (
+            float(self.get_parameter("corner_c_x").value),
+            float(self.get_parameter("corner_c_y").value),
+            float(self.get_parameter("corner_c_z").value),
+        )
+        self.corner_ab = (
+            self.corner_b[0] - self.corner_a[0],
+            self.corner_b[1] - self.corner_a[1],
+            self.corner_b[2] - self.corner_a[2],
+        )
+        self.corner_ac = (
+            self.corner_c[0] - self.corner_a[0],
+            self.corner_c[1] - self.corner_a[1],
+            self.corner_c[2] - self.corner_a[2],
+        )
+        ab_len = float(np.linalg.norm(np.array(self.corner_ab[:2], dtype=float)))
+        ac_len = float(np.linalg.norm(np.array(self.corner_ac[:2], dtype=float)))
+        if self.use_corner_calibration and (ab_len < 1e-6 or ac_len < 1e-6):
+            self.get_logger().warn(
+                "Corner calibration is enabled but corner geometry is degenerate. "
+                "Falling back to origin/width/height mapping."
+            )
+            self.use_corner_calibration = False
         self.path_smooth_window = int(self.get_parameter("path_smooth_window").value)
         self.project_to_safe_annulus = bool(
             self.get_parameter("project_to_safe_annulus").value
@@ -70,6 +115,9 @@ class ToolpathNode(Node):
         self.safe_base_y = float(self.get_parameter("safe_base_y").value)
         self.safe_min_radius = float(self.get_parameter("safe_min_radius").value)
         self.safe_max_radius = float(self.get_parameter("safe_max_radius").value)
+        self.distance_scale_from_base = max(
+            0.0, float(self.get_parameter("distance_scale_from_base").value)
+        )
         self.reverse_for_easy_start = bool(self.get_parameter("reverse_for_easy_start").value)
         self.preferred_start_x = float(self.get_parameter("preferred_start_x").value)
         self.preferred_start_y = float(self.get_parameter("preferred_start_y").value)
@@ -93,6 +141,12 @@ class ToolpathNode(Node):
         self.component_min_area = max(
             1, int(self.get_parameter("component_min_area").value)
         )
+        if self.use_corner_calibration and self.project_to_safe_annulus:
+            self.get_logger().warn(
+                "Disabling project_to_safe_annulus while use_corner_calibration=true "
+                "to preserve real A/B/C geometry."
+            )
+            self.project_to_safe_annulus = False
         self.has_ximgproc = hasattr(cv2, "ximgproc") and hasattr(cv2.ximgproc, "thinning")
 
         self.bridge = CvBridge()
@@ -111,6 +165,10 @@ class ToolpathNode(Node):
         self.get_logger().info(
             f"Component select mode: {self.component_select_mode}, min area: {self.component_min_area}px"
         )
+        if self.use_corner_calibration:
+            self.get_logger().info(
+                "Using 3-corner calibration (A/B/C) for pixel -> workspace mapping."
+            )
 
     def cb(self, msg: Image):
         """Generate a true centerline toolpath from the detected crack mask."""
@@ -156,6 +214,7 @@ class ToolpathNode(Node):
             sampled, raw_mask.shape[1], raw_mask.shape[0]
         )
         world_points = self.smooth_world_path(world_points)
+        world_points = self.scale_path_from_base(world_points)
         if self.project_to_safe_annulus:
             world_points = self.project_path_to_safe_annulus(world_points)
         if self.reverse_for_easy_start:
@@ -164,8 +223,8 @@ class ToolpathNode(Node):
             return
 
         poly = Polygon()
-        for x, y in world_points:
-            poly.points.append(Point32(x=float(x), y=float(y), z=0.0))
+        for x, y, z in world_points:
+            poly.points.append(Point32(x=float(x), y=float(y), z=float(z)))
 
         self.pub.publish(poly)
         self.publish_path_preview(world_points, msg.header)
@@ -348,7 +407,7 @@ class ToolpathNode(Node):
             return []
 
         if not self.output_in_workspace:
-            return sampled
+            return [(float(x), float(y), 0.0) for x, y in sampled]
 
         denom_x = max(1.0, float(image_width - 1))
         denom_y = max(1.0, float(image_height - 1))
@@ -356,11 +415,17 @@ class ToolpathNode(Node):
         for x, y in sampled:
             u = float(x) / denom_x
             v = float(y) / denom_y
-            wx = self.workpiece_origin_x + u * self.workpiece_width
-            wy = self.workpiece_origin_y + v * self.workpiece_height
-            wx = float(np.clip(wx, 0.0, self.workspace_width))
-            wy = float(np.clip(wy, 0.0, self.workspace_height))
-            world.append((wx, wy))
+            if self.use_corner_calibration:
+                wx = self.corner_a[0] + u * self.corner_ab[0] + v * self.corner_ac[0]
+                wy = self.corner_a[1] + u * self.corner_ab[1] + v * self.corner_ac[1]
+                wz = self.corner_a[2] + u * self.corner_ab[2] + v * self.corner_ac[2]
+            else:
+                wx = self.workpiece_origin_x + u * self.workpiece_width
+                wy = self.workpiece_origin_y + v * self.workpiece_height
+                wz = 0.0
+                wx = float(np.clip(wx, 0.0, self.workspace_width))
+                wy = float(np.clip(wy, 0.0, self.workspace_height))
+            world.append((float(wx), float(wy), float(wz)))
         return world
 
     def smooth_world_path(self, points):
@@ -380,10 +445,11 @@ class ToolpathNode(Node):
         kernel = np.ones(window, dtype=np.float32) / float(window)
         sx = np.convolve(padded[:, 0], kernel, mode="valid")
         sy = np.convolve(padded[:, 1], kernel, mode="valid")
-        smoothed = np.stack([sx, sy], axis=1)
+        sz = np.convolve(padded[:, 2], kernel, mode="valid")
+        smoothed = np.stack([sx, sy, sz], axis=1)
         smoothed[0] = arr[0]
         smoothed[-1] = arr[-1]
-        return [(float(p[0]), float(p[1])) for p in smoothed]
+        return [(float(p[0]), float(p[1]), float(p[2])) for p in smoothed]
 
     def project_path_to_safe_annulus(self, points):
         if not points:
@@ -391,7 +457,7 @@ class ToolpathNode(Node):
         r_min = min(self.safe_min_radius, self.safe_max_radius)
         r_max = max(self.safe_min_radius, self.safe_max_radius)
         out = []
-        for x, y in points:
+        for x, y, z in points:
             dx = float(x) - self.safe_base_x
             dy = float(y) - self.safe_base_y
             r = float(np.hypot(dx, dy))
@@ -405,7 +471,7 @@ class ToolpathNode(Node):
             ny = self.safe_base_y + dy * scale
             nx = float(np.clip(nx, 0.0, self.workspace_width))
             ny = float(np.clip(ny, 0.0, self.workspace_height))
-            out.append((nx, ny))
+            out.append((nx, ny, float(z)))
         return out
 
     def reverse_if_better_start(self, points):
@@ -418,6 +484,20 @@ class ToolpathNode(Node):
             return list(reversed(points))
         return points
 
+    def scale_path_from_base(self, points):
+        """Scale toolpath radial distance from base center."""
+        if not points:
+            return points
+        scale = float(self.distance_scale_from_base)
+        if abs(scale - 1.0) < 1e-6:
+            return points
+        out = []
+        for x, y, z in points:
+            nx = self.safe_base_x + (float(x) - self.safe_base_x) * scale
+            ny = self.safe_base_y + (float(y) - self.safe_base_y) * scale
+            out.append((float(nx), float(ny), float(z)))
+        return out
+
     def publish_path_preview(self, world_points, header):
         """Publish RViz-friendly preview of the generated toolpath as nav_msgs/Path."""
         if not world_points:
@@ -427,16 +507,16 @@ class ToolpathNode(Node):
         path.header.frame_id = self.frame_id
         path.header.stamp = header.stamp
 
-        for i, (x, y) in enumerate(world_points):
+        for i, (x, y, z) in enumerate(world_points):
             pose = PoseStamped()
             pose.header.frame_id = self.frame_id
             pose.header.stamp = header.stamp
             pose.pose.position.x = float(x)
             pose.pose.position.y = float(y)
-            pose.pose.position.z = 0.0
+            pose.pose.position.z = float(z)
 
             if i < len(world_points) - 1:
-                nx, ny = world_points[i + 1]
+                nx, ny, _ = world_points[i + 1]
                 dx = nx - x
                 dy = ny - y
                 yaw = np.arctan2(dy, dx)

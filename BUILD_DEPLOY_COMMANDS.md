@@ -124,6 +124,21 @@ ros2 launch repairman_vision launch.py quality_threshold:=0.3
 ros2 launch repairman_vision launch.py auto_start:=false
 ```
 
+### 3-Corner Work Platform Calibration (A-B-C, XYZ)
+
+```bash
+ros2 launch repairman_vision launch.py \
+  use_corner_calibration:=true \
+  corner_a_x:=0.720 corner_a_y:=0.300 corner_a_z:=0.015 \
+  corner_b_x:=0.940 corner_b_y:=0.300 corner_b_z:=0.018 \
+  corner_c_x:=0.720 corner_c_y:=0.700 corner_c_z:=0.012
+```
+
+Notes:
+- `corner_a` = rectangle origin corner
+- `corner_b` = width direction neighbor corner
+- `corner_c` = height direction neighbor corner
+
 ### Combine Multiple Parameters
 
 ```bash

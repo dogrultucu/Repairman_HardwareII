@@ -189,14 +189,16 @@ class ExecuteNode(Node):
         for i in range(self.current_point_index):
             pt = self.current_toolpath.points[i]
             # Normalize point to workspace
-            norm_x, norm_y = self.normalize_point(pt.x, pt.y, self.current_toolpath)
+            norm_x, norm_y, norm_z = self.normalize_point(
+                pt.x, pt.y, pt.z, self.current_toolpath
+            )
 
             pose = PoseStamped()
             pose.header.frame_id = self.path_frame
             pose.header.stamp = path.header.stamp
             pose.pose.position.x = norm_x
             pose.pose.position.y = norm_y
-            pose.pose.position.z = 0.0
+            pose.pose.position.z = norm_z
             # Simple orientation: direction towards next point
             if i < len(self.current_toolpath.points) - 1:
                 next_pt = self.current_toolpath.points[i + 1]
@@ -219,8 +221,8 @@ class ExecuteNode(Node):
             return
 
         pt = self.current_toolpath.points[self.current_point_index - 1]
-        norm_x, norm_y = self.normalize_point(pt.x, pt.y, self.current_toolpath)
-        current = (norm_x, norm_y, self.extrusion_height)
+        norm_x, norm_y, norm_z = self.normalize_point(pt.x, pt.y, pt.z, self.current_toolpath)
+        current = (norm_x, norm_y, norm_z + self.extrusion_height)
 
         if not self.executed_world_points or self.executed_world_points[-1] != current:
             self.executed_world_points.append(current)
@@ -300,19 +302,19 @@ class ExecuteNode(Node):
         arr.markers.append(tool)
         self.pub_extrusion_markers.publish(arr)
 
-    def normalize_point(self, x, y, polygon):
+    def normalize_point(self, x, y, z, polygon):
         """
         Normalize polygon points to workspace bounds.
 
         Simple scaling: map bounding box to workspace_width x workspace_height.
         """
         if len(polygon.points) == 0:
-            return x, y
+            return x, y, z
 
         if self.input_already_normalized:
             norm_x = self.clamp(float(x), 0.0, self.workspace_width)
             norm_y = self.clamp(float(y), 0.0, self.workspace_height)
-            return norm_x, norm_y
+            return norm_x, norm_y, float(z)
 
         xs = [p.x for p in polygon.points]
         ys = [p.y for p in polygon.points]
@@ -328,13 +330,16 @@ class ExecuteNode(Node):
         norm_x = ((x - min_x) / width) * self.workspace_width
         norm_y = ((y - min_y) / height) * self.workspace_height
 
-        return norm_x, norm_y
+        return norm_x, norm_y, float(z)
 
     def is_workspace_polygon(self, polygon):
         if len(polygon.points) < 2:
             return False
         xs = [p.x for p in polygon.points]
         ys = [p.y for p in polygon.points]
+        zs = [p.z for p in polygon.points]
+        if any(abs(float(z)) > 1e-6 for z in zs):
+            return True
         tol = 0.05 * max(self.workspace_width, self.workspace_height)
         return (
             min(xs) >= -tol

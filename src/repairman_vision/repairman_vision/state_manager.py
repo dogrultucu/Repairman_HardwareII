@@ -55,6 +55,12 @@ class StateManager(Node):
         self.declare_parameter("scan_min_duration_sec", 1.5)  # Minimum time to stay in SCAN
         self.declare_parameter("detect_min_duration_sec", 0.8)  # Minimum time to stay in DETECT
         self.declare_parameter("plan_min_duration_sec", 0.8)  # Minimum time to stay in PLAN
+        self.declare_parameter("detect_wait_timeout_sec", 3.0)
+        self.declare_parameter("plan_wait_timeout_sec", 3.0)
+        self.declare_parameter("repair_wait_timeout_sec", 10.0)
+        self.declare_parameter("allow_progress_without_mask", False)
+        self.declare_parameter("allow_progress_without_toolpath", False)
+        self.declare_parameter("allow_progress_without_execution", False)
         self.declare_parameter("max_repair_passes", 2)  # Max number of consecutive repair attempts
         self.declare_parameter("auto_start", True)  # If True, automatically start cycles
         self.declare_parameter("verbose", True)
@@ -65,6 +71,18 @@ class StateManager(Node):
         self.scan_min_duration = float(self.get_parameter("scan_min_duration_sec").value)
         self.detect_min_duration = float(self.get_parameter("detect_min_duration_sec").value)
         self.plan_min_duration = float(self.get_parameter("plan_min_duration_sec").value)
+        self.detect_wait_timeout = float(self.get_parameter("detect_wait_timeout_sec").value)
+        self.plan_wait_timeout = float(self.get_parameter("plan_wait_timeout_sec").value)
+        self.repair_wait_timeout = float(self.get_parameter("repair_wait_timeout_sec").value)
+        self.allow_progress_without_mask = bool(
+            self.get_parameter("allow_progress_without_mask").value
+        )
+        self.allow_progress_without_toolpath = bool(
+            self.get_parameter("allow_progress_without_toolpath").value
+        )
+        self.allow_progress_without_execution = bool(
+            self.get_parameter("allow_progress_without_execution").value
+        )
         self.max_repair_passes = int(self.get_parameter("max_repair_passes").value)
         self.auto_start = bool(self.get_parameter("auto_start").value)
         self.verbose = bool(self.get_parameter("verbose").value)
@@ -141,6 +159,9 @@ class StateManager(Node):
 
     def on_toolpath(self, msg: Polygon):
         """Handle incoming toolpath messages."""
+        if len(msg.points) < 2:
+            self.log("[PLAN] Ignoring toolpath with <2 points.")
+            return
         self.last_toolpath_time = time.time()
         if self.state == State.PLAN:
             elapsed = time.time() - self.state_entry_time
@@ -212,23 +233,44 @@ class StateManager(Node):
         elif self.state == State.DETECT:
             # Waiting for mask
             elapsed = time.time() - self.state_entry_time
-            if elapsed > 3.0:
-                self.log("[DETECT] No mask received, moving to PLAN anyway")
-                self.transition_to(State.PLAN)
+            if elapsed > self.detect_wait_timeout:
+                if self.allow_progress_without_mask:
+                    self.log("[DETECT] No mask received, moving to PLAN anyway")
+                    self.transition_to(State.PLAN)
+                else:
+                    self.log(
+                        "[DETECT] No mask received; returning to SCAN "
+                        "(allow_progress_without_mask=false)"
+                    )
+                    self.transition_to(State.SCAN)
 
         elif self.state == State.PLAN:
             # Waiting for toolpath
             elapsed = time.time() - self.state_entry_time
-            if elapsed > 3.0:
-                self.log("[PLAN] No toolpath received, moving to REPAIR anyway")
-                self.transition_to(State.REPAIR)
+            if elapsed > self.plan_wait_timeout:
+                if self.allow_progress_without_toolpath:
+                    self.log("[PLAN] No toolpath received, moving to REPAIR anyway")
+                    self.transition_to(State.REPAIR)
+                else:
+                    self.log(
+                        "[PLAN] No toolpath received; returning to DETECT "
+                        "(allow_progress_without_toolpath=false)"
+                    )
+                    self.transition_to(State.DETECT)
 
         elif self.state == State.REPAIR:
             # Waiting for execution done signal (/repair/executed)
             elapsed = time.time() - self.state_entry_time
-            if elapsed > 10.0:
-                self.log("[REPAIR] No execution completion signal, timing out")
-                self.transition_to(State.RESCAN)
+            if elapsed > self.repair_wait_timeout:
+                if self.allow_progress_without_execution:
+                    self.log("[REPAIR] No execution completion signal, timing out")
+                    self.transition_to(State.RESCAN)
+                else:
+                    self.log(
+                        "[REPAIR] No execution completion signal; returning to PLAN "
+                        "(allow_progress_without_execution=false)"
+                    )
+                    self.transition_to(State.PLAN)
 
         elif self.state == State.RESCAN:
             # Wait a bit for material to cure, then expect a new mask

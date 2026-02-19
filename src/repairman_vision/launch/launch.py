@@ -144,6 +144,66 @@ def generate_launch_description():
         description="Workpiece height in workspace coordinates",
     )
 
+    use_corner_calibration_arg = DeclareLaunchArgument(
+        "use_corner_calibration",
+        default_value="false",
+        description="Use 3-corner (A/B/C) XYZ calibration for pixel-to-workspace mapping",
+    )
+
+    corner_a_x_arg = DeclareLaunchArgument(
+        "corner_a_x",
+        default_value="0.72",
+        description="Corner A X coordinate in robot frame",
+    )
+
+    corner_a_y_arg = DeclareLaunchArgument(
+        "corner_a_y",
+        default_value="0.30",
+        description="Corner A Y coordinate in robot frame",
+    )
+
+    corner_a_z_arg = DeclareLaunchArgument(
+        "corner_a_z",
+        default_value="0.00",
+        description="Corner A Z coordinate in robot frame",
+    )
+
+    corner_b_x_arg = DeclareLaunchArgument(
+        "corner_b_x",
+        default_value="0.94",
+        description="Corner B X coordinate in robot frame",
+    )
+
+    corner_b_y_arg = DeclareLaunchArgument(
+        "corner_b_y",
+        default_value="0.30",
+        description="Corner B Y coordinate in robot frame",
+    )
+
+    corner_b_z_arg = DeclareLaunchArgument(
+        "corner_b_z",
+        default_value="0.00",
+        description="Corner B Z coordinate in robot frame",
+    )
+
+    corner_c_x_arg = DeclareLaunchArgument(
+        "corner_c_x",
+        default_value="0.72",
+        description="Corner C X coordinate in robot frame",
+    )
+
+    corner_c_y_arg = DeclareLaunchArgument(
+        "corner_c_y",
+        default_value="0.70",
+        description="Corner C Y coordinate in robot frame",
+    )
+
+    corner_c_z_arg = DeclareLaunchArgument(
+        "corner_c_z",
+        default_value="0.00",
+        description="Corner C Z coordinate in robot frame",
+    )
+
     preferred_start_x_arg = DeclareLaunchArgument(
         "preferred_start_x",
         default_value="0.78",
@@ -154,6 +214,12 @@ def generate_launch_description():
         "preferred_start_y",
         default_value="0.50",
         description="Preferred toolpath start Y to reduce initial robot effort",
+    )
+
+    reverse_for_easy_start_arg = DeclareLaunchArgument(
+        "reverse_for_easy_start",
+        default_value="false",
+        description="Reverse toolpath when end point is closer to preferred start",
     )
 
     toolpath_min_area_arg = DeclareLaunchArgument(
@@ -186,6 +252,12 @@ def generate_launch_description():
         description="Component-area filter before selector scoring (pixels)",
     )
 
+    toolpath_distance_scale_from_base_arg = DeclareLaunchArgument(
+        "toolpath_distance_scale_from_base",
+        default_value="1.0",
+        description="Radial scaling of toolpath distance from robot base (2.0 => 2x farther)",
+    )
+
     quality_threshold_arg = DeclareLaunchArgument(
         "quality_threshold",
         default_value="0.5",
@@ -208,6 +280,42 @@ def generate_launch_description():
         "plan_min_duration_sec",
         default_value="0.8",
         description="Minimum dwell time in PLAN state before REPAIR",
+    )
+
+    detect_wait_timeout_arg = DeclareLaunchArgument(
+        "detect_wait_timeout_sec",
+        default_value="3.0",
+        description="Timeout in DETECT while waiting for mask",
+    )
+
+    plan_wait_timeout_arg = DeclareLaunchArgument(
+        "plan_wait_timeout_sec",
+        default_value="3.0",
+        description="Timeout in PLAN while waiting for toolpath",
+    )
+
+    repair_wait_timeout_arg = DeclareLaunchArgument(
+        "repair_wait_timeout_sec",
+        default_value="10.0",
+        description="Timeout in REPAIR while waiting for /repair/executed",
+    )
+
+    allow_progress_without_mask_arg = DeclareLaunchArgument(
+        "allow_progress_without_mask",
+        default_value="false",
+        description="If true, state manager can continue without receiving /damage/mask",
+    )
+
+    allow_progress_without_toolpath_arg = DeclareLaunchArgument(
+        "allow_progress_without_toolpath",
+        default_value="false",
+        description="If true, state manager can continue to REPAIR without /repair/toolpath",
+    )
+
+    allow_progress_without_execution_arg = DeclareLaunchArgument(
+        "allow_progress_without_execution",
+        default_value="false",
+        description="If true, state manager can continue to RESCAN without /repair/executed",
     )
 
     rescan_delay_arg = DeclareLaunchArgument(
@@ -288,6 +396,12 @@ def generate_launch_description():
         description="Smoothing factor for target yaw to reduce wrist jitter",
     )
 
+    arm_toolpath_yaw_offset_deg_arg = DeclareLaunchArgument(
+        "arm_toolpath_yaw_offset_deg",
+        default_value="0.0",
+        description="Additional yaw offset applied to toolpath heading (degrees)",
+    )
+
     arm_max_joint_speed_arg = DeclareLaunchArgument(
         "max_joint_speed_rad_s",
         default_value="1.0",
@@ -342,6 +456,12 @@ def generate_launch_description():
         description="Penalty for switching IK elbow branch to reduce unpredictable flips",
     )
 
+    arm_perpendicular_to_toolpath_arg = DeclareLaunchArgument(
+        "arm_perpendicular_to_toolpath",
+        default_value="false",
+        description="If true, arm points tool perpendicular to path direction",
+    )
+
     rviz_config_arg = DeclareLaunchArgument(
         "rviz_config",
         default_value=os.path.join(pkg_dir, "rviz", "repairman_pipeline.rviz"),
@@ -376,6 +496,30 @@ def generate_launch_description():
         "ur_type",
         default_value="ur10",
         description="UR robot family used when use_ur10_model=true (e.g. ur10, ur10e, ur20)",
+    )
+
+    ur10_base_x_arg = DeclareLaunchArgument(
+        "ur10_base_x",
+        default_value="0.5",
+        description="UR10 base_link X in repairman_map",
+    )
+
+    ur10_base_y_arg = DeclareLaunchArgument(
+        "ur10_base_y",
+        default_value="0.5",
+        description="UR10 base_link Y in repairman_map",
+    )
+
+    ur10_base_z_arg = DeclareLaunchArgument(
+        "ur10_base_z",
+        default_value="0.0",
+        description="UR10 base_link Z in repairman_map",
+    )
+
+    ur10_base_yaw_arg = DeclareLaunchArgument(
+        "ur10_base_yaw",
+        default_value="0.0",
+        description="UR10 base_link yaw in repairman_map (radians)",
     )
 
     use_moveit_arg = DeclareLaunchArgument(
@@ -465,13 +609,24 @@ def generate_launch_description():
             {"workpiece_origin_y": LaunchConfiguration("workpiece_origin_y")},
             {"workpiece_width": LaunchConfiguration("workpiece_width")},
             {"workpiece_height": LaunchConfiguration("workpiece_height")},
+            {"use_corner_calibration": LaunchConfiguration("use_corner_calibration")},
+            {"corner_a_x": LaunchConfiguration("corner_a_x")},
+            {"corner_a_y": LaunchConfiguration("corner_a_y")},
+            {"corner_a_z": LaunchConfiguration("corner_a_z")},
+            {"corner_b_x": LaunchConfiguration("corner_b_x")},
+            {"corner_b_y": LaunchConfiguration("corner_b_y")},
+            {"corner_b_z": LaunchConfiguration("corner_b_z")},
+            {"corner_c_x": LaunchConfiguration("corner_c_x")},
+            {"corner_c_y": LaunchConfiguration("corner_c_y")},
+            {"corner_c_z": LaunchConfiguration("corner_c_z")},
             {"path_smooth_window": 9},
             {"project_to_safe_annulus": True},
-            {"safe_base_x": 0.5},
-            {"safe_base_y": 0.5},
+            {"safe_base_x": LaunchConfiguration("ur10_base_x")},
+            {"safe_base_y": LaunchConfiguration("ur10_base_y")},
             {"safe_min_radius": LaunchConfiguration("safe_min_radius")},
             {"safe_max_radius": LaunchConfiguration("safe_max_radius")},
-            {"reverse_for_easy_start": True},
+            {"distance_scale_from_base": LaunchConfiguration("toolpath_distance_scale_from_base")},
+            {"reverse_for_easy_start": LaunchConfiguration("reverse_for_easy_start")},
             {"preferred_start_x": LaunchConfiguration("preferred_start_x")},
             {"preferred_start_y": LaunchConfiguration("preferred_start_y")},
             {"min_area": LaunchConfiguration("toolpath_min_area")},
@@ -538,6 +693,20 @@ def generate_launch_description():
             {"scan_min_duration_sec": LaunchConfiguration("scan_min_duration_sec")},
             {"detect_min_duration_sec": LaunchConfiguration("detect_min_duration_sec")},
             {"plan_min_duration_sec": LaunchConfiguration("plan_min_duration_sec")},
+            {"detect_wait_timeout_sec": LaunchConfiguration("detect_wait_timeout_sec")},
+            {"plan_wait_timeout_sec": LaunchConfiguration("plan_wait_timeout_sec")},
+            {"repair_wait_timeout_sec": LaunchConfiguration("repair_wait_timeout_sec")},
+            {"allow_progress_without_mask": LaunchConfiguration("allow_progress_without_mask")},
+            {
+                "allow_progress_without_toolpath": LaunchConfiguration(
+                    "allow_progress_without_toolpath"
+                )
+            },
+            {
+                "allow_progress_without_execution": LaunchConfiguration(
+                    "allow_progress_without_execution"
+                )
+            },
             {"max_repair_passes": 2},
             {"auto_start": LaunchConfiguration("auto_start")},
             {"verbose": True},
@@ -708,17 +877,17 @@ def generate_launch_description():
         name="repairman_ur10_base_tf",
         arguments=[
             "--x",
-            "0.5",
+            LaunchConfiguration("ur10_base_x"),
             "--y",
-            "0.5",
+            LaunchConfiguration("ur10_base_y"),
             "--z",
-            "0.0",
+            LaunchConfiguration("ur10_base_z"),
             "--roll",
             "0.0",
             "--pitch",
             "0.0",
             "--yaw",
-            "0.0",
+            LaunchConfiguration("ur10_base_yaw"),
             "--frame-id",
             "repairman_map",
             "--child-frame-id",
@@ -788,8 +957,8 @@ def generate_launch_description():
         {"tracking_alpha": LaunchConfiguration("arm_tracking_alpha")},
         {"target_smoothing_alpha": LaunchConfiguration("arm_target_smoothing_alpha")},
         {"yaw_smoothing_alpha": LaunchConfiguration("arm_yaw_smoothing_alpha")},
-        {"toolpath_yaw_offset_deg": 0.0},
-        {"perpendicular_to_toolpath": False},
+        {"toolpath_yaw_offset_deg": LaunchConfiguration("arm_toolpath_yaw_offset_deg")},
+        {"perpendicular_to_toolpath": LaunchConfiguration("arm_perpendicular_to_toolpath")},
         {"use_ur_wrist_shaping": False},
         {"wrist5_target_rad": -1.35},
         {"wrist5_compensation_gain": 0.7},
@@ -805,8 +974,8 @@ def generate_launch_description():
         {"use_collision_guard": LaunchConfiguration("arm_use_collision_guard")},
         {"retreat_on_collision": LaunchConfiguration("arm_retreat_on_collision")},
         {"elbow_branch_switch_penalty": LaunchConfiguration("arm_elbow_switch_penalty")},
-        {"base_x": 0.5},
-        {"base_y": 0.5},
+        {"base_x": LaunchConfiguration("ur10_base_x")},
+        {"base_y": LaunchConfiguration("ur10_base_y")},
         {"shoulder_z": 0.17},
         {"work_z": 0.01},
         {"link_2": 0.28},
@@ -838,7 +1007,6 @@ def generate_launch_description():
                     "wrist_3_joint",
                 ]
             },
-            {"perpendicular_to_toolpath": True},
             {"use_ur_wrist_shaping": True},
             {"wrist5_target_rad": -1.40},
             {"wrist5_compensation_gain": 0.75},
@@ -989,6 +1157,17 @@ def generate_launch_description():
             workpiece_origin_y_arg,
             workpiece_width_arg,
             workpiece_height_arg,
+            reverse_for_easy_start_arg,
+            use_corner_calibration_arg,
+            corner_a_x_arg,
+            corner_a_y_arg,
+            corner_a_z_arg,
+            corner_b_x_arg,
+            corner_b_y_arg,
+            corner_b_z_arg,
+            corner_c_x_arg,
+            corner_c_y_arg,
+            corner_c_z_arg,
             preferred_start_x_arg,
             preferred_start_y_arg,
             toolpath_min_area_arg,
@@ -996,10 +1175,17 @@ def generate_launch_description():
             toolpath_mask_close_kernel_arg,
             toolpath_component_select_mode_arg,
             toolpath_component_min_area_arg,
+            toolpath_distance_scale_from_base_arg,
             quality_threshold_arg,
             scan_min_duration_arg,
             detect_min_duration_arg,
             plan_min_duration_arg,
+            detect_wait_timeout_arg,
+            plan_wait_timeout_arg,
+            repair_wait_timeout_arg,
+            allow_progress_without_mask_arg,
+            allow_progress_without_toolpath_arg,
+            allow_progress_without_execution_arg,
             rescan_delay_arg,
             auto_start_arg,
             use_rviz_arg,
@@ -1013,6 +1199,7 @@ def generate_launch_description():
             arm_tracking_alpha_arg,
             arm_target_smoothing_alpha_arg,
             arm_yaw_smoothing_alpha_arg,
+            arm_toolpath_yaw_offset_deg_arg,
             arm_max_joint_speed_arg,
             arm_singularity_margin_arg,
             arm_safe_min_radius_arg,
@@ -1022,12 +1209,17 @@ def generate_launch_description():
             arm_use_collision_guard_arg,
             arm_retreat_on_collision_arg,
             arm_elbow_switch_penalty_arg,
+            arm_perpendicular_to_toolpath_arg,
             rviz_config_arg,
             connect_world_to_repairman_arg,
             robot_world_frame_arg,
             publish_demo_robot_arg,
             use_ur10_model_arg,
             ur_type_arg,
+            ur10_base_x_arg,
+            ur10_base_y_arg,
+            ur10_base_z_arg,
+            ur10_base_yaw_arg,
             use_moveit_arg,
             use_moveit_scene_arg,
             use_moveit_collision_check_arg,
